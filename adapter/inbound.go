@@ -11,6 +11,11 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 )
 
+type UserManager[T any] interface {
+	AddUser(user T) error
+	RemoveUser(user T) error
+}
+
 type Inbound interface {
 	Lifecycle
 	Type() string

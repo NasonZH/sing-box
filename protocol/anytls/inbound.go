@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"strings"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -35,6 +36,9 @@ type Inbound struct {
 	logger    logger.ContextLogger
 	listener  *listener.Listener
 	service   *anytls.Service
+
+	lock  sync.Mutex
+	users []anytls.User
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.AnyTLSInboundOptions) (adapter.Inbound, error) {
@@ -76,6 +80,10 @@ func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLo
 		Listen:            options.ListenOptions,
 		ConnectionHandler: inbound,
 	})
+
+	inbound.users = common.Map(options.Users, func(it option.AnyTLSUser) anytls.User {
+		return (anytls.User)(it)
+	})
 	return inbound, nil
 }
 
@@ -94,6 +102,44 @@ func (h *Inbound) Start(stage adapter.StartStage) error {
 
 func (h *Inbound) Close() error {
 	return common.Close(h.listener, h.tlsConfig)
+}
+
+func (h *Inbound) AddUser(user anytls.User) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it anytls.User) bool {
+		return it.Name == user.Name
+	})
+	if index != -1 {
+		h.logger.Info("[", user.Name, "] user already exists in inbound ", h.Tag())
+		return nil
+	}
+
+	h.users = append(h.users, user)
+	h.service.UpdateUsers(h.users)
+
+	h.logger.Info("[", user.Name, "] user added in inbound ", h.Tag())
+	return nil
+}
+
+func (h *Inbound) RemoveUser(user anytls.User) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it anytls.User) bool {
+		return it.Name == user.Name
+	})
+	if index == -1 {
+		h.logger.Info("[", user.Name, "] user not found in inbound ", h.Tag())
+		return nil
+	}
+
+	h.users = append(h.users[:index], h.users[index+1:]...)
+	h.service.UpdateUsers(h.users)
+
+	h.logger.Info("[", user.Name, "] user removed from inbound ", h.Tag())
+	return nil
 }
 
 func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {

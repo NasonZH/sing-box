@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -32,6 +33,7 @@ func RegisterInbound(registry *inbound.Registry) {
 }
 
 var _ adapter.TCPInjectableInbound = (*Inbound)(nil)
+var _ adapter.UserManager[option.VLESSUser] = (*Inbound)(nil)
 
 type Inbound struct {
 	inbound.Adapter
@@ -43,6 +45,8 @@ type Inbound struct {
 	service   *vless.Service[int]
 	tlsConfig tls.ServerConfig
 	transport adapter.V2RayServerTransport
+
+	lock sync.Mutex
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.VLESSInboundOptions) (adapter.Inbound, error) {
@@ -145,6 +149,56 @@ func (h *Inbound) Close() error {
 		h.tlsConfig,
 		h.transport,
 	)
+}
+
+func (h *Inbound) AddUser(user option.VLESSUser) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it option.VLESSUser) bool {
+		return it.Name == user.Name
+	})
+	if index != -1 {
+		h.logger.Warn("[", user.Name, "] user already exists in inbound ", h.Tag())
+		return nil
+	}
+
+	h.users = append(h.users, user)
+	h.service.UpdateUsers(common.MapIndexed(h.users, func(index int, _ option.VLESSUser) int {
+		return index
+	}), common.Map(h.users, func(it option.VLESSUser) string {
+		return it.UUID
+	}), common.Map(h.users, func(it option.VLESSUser) string {
+		return it.Flow
+	}))
+
+	h.logger.Info("[", user.Name, "] user added to inbound ", h.Tag())
+	return nil
+}
+
+func (h *Inbound) RemoveUser(user option.VLESSUser) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it option.VLESSUser) bool {
+		return it.Name == user.Name
+	})
+	if index == -1 {
+		h.logger.Warn("[", user.Name, "] user not found in inbound ", h.Tag())
+		return nil
+	}
+
+	h.users = append(h.users[:index], h.users[index+1:]...)
+	h.service.UpdateUsers(common.MapIndexed(h.users, func(index int, _ option.VLESSUser) int {
+		return index
+	}), common.Map(h.users, func(it option.VLESSUser) string {
+		return it.UUID
+	}), common.Map(h.users, func(it option.VLESSUser) string {
+		return it.Flow
+	}))
+
+	h.logger.Info("[", user.Name, "] user removed from inbound ", h.Tag())
+	return nil
 }
 
 func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {

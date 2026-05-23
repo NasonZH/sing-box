@@ -29,6 +29,8 @@ func RegisterInbound(registry *inbound.Registry) {
 	inbound.Register[option.AnyTLSInboundOptions](registry, C.TypeAnyTLS, NewInbound)
 }
 
+var _ adapter.UserManager[anytls.User] = (*Inbound)(nil)
+
 type Inbound struct {
 	inbound.Adapter
 	tlsConfig tls.ServerConfig
@@ -131,14 +133,14 @@ func (h *Inbound) RemoveUser(user anytls.User) error {
 		return it.Name == user.Name
 	})
 	if index == -1 {
-		h.logger.Info("[", user.Name, "] user not found in inbound ", h.Tag())
+		h.logger.Warn("[", user.Name, "] user not found in inbound ", h.Tag())
 		return nil
 	}
 
 	h.users = append(h.users[:index], h.users[index+1:]...)
 	h.service.UpdateUsers(h.users)
 
-	h.logger.Info("[", user.Name, "] user removed from inbound ", h.Tag())
+	h.logger.Info("[", user.Name, "] user removed in inbound ", h.Tag())
 	return nil
 }
 

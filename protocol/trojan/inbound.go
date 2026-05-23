@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/adapter/inbound"
@@ -29,6 +30,8 @@ func RegisterInbound(registry *inbound.Registry) {
 
 var _ adapter.TCPInjectableInbound = (*Inbound)(nil)
 
+var _ adapter.UserManager[option.TrojanUser] = (*Inbound)(nil)
+
 type Inbound struct {
 	inbound.Adapter
 	router                   adapter.ConnectionRouterEx
@@ -40,6 +43,8 @@ type Inbound struct {
 	fallbackAddr             M.Socksaddr
 	fallbackAddrTLSNextProto map[string]M.Socksaddr
 	transport                adapter.V2RayServerTransport
+
+	lock sync.Mutex
 }
 
 func NewInbound(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.TrojanInboundOptions) (adapter.Inbound, error) {
@@ -162,6 +167,65 @@ func (h *Inbound) Close() error {
 		h.tlsConfig,
 		h.transport,
 	)
+}
+
+func (h *Inbound) AddUser(user option.TrojanUser) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it option.TrojanUser) bool {
+		return it.Name == user.Name
+	})
+	if index != -1 {
+		h.logger.Warn("[", user.Name, "] user already exists in inbound ", h.Tag())
+		return nil
+	}
+
+	users := make([]option.TrojanUser, 0, len(h.users)+1)
+	copy(users, h.users)
+	users = append(users, user)
+	err := h.service.UpdateUsers(common.MapIndexed(users, func(index int, it option.TrojanUser) int {
+		return index
+	}), common.Map(users, func(it option.TrojanUser) string {
+		return it.Password
+	}))
+	if err != nil {
+		return err
+	}
+
+	h.users = users
+
+	h.logger.Info("[", user.Name, "] user added to inbound ", h.Tag())
+	return nil
+}
+
+func (h *Inbound) RemoveUser(user option.TrojanUser) error {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+
+	index := common.Index(h.users, func(it option.TrojanUser) bool {
+		return it.Name == user.Name
+	})
+	if index == -1 {
+		h.logger.Warn("[", user.Name, "] user not found in inbound ", h.Tag())
+		return nil
+	}
+
+	users := make([]option.TrojanUser, 0, len(h.users))
+	copy(users, h.users)
+	users = append(users[:index], users[index+1:]...)
+
+	if err := h.service.UpdateUsers(common.MapIndexed(users, func(index int, it option.TrojanUser) int {
+		return index
+	}), common.Map(users, func(it option.TrojanUser) string {
+		return it.Password
+	})); err != nil {
+		return err
+	}
+	h.users = users
+
+	h.logger.Info("[", user.Name, "] user removed from inbound ", h.Tag())
+	return nil
 }
 
 func (h *Inbound) NewConnectionEx(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, onClose N.CloseHandlerFunc) {

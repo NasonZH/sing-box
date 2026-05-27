@@ -13,13 +13,6 @@ import (
 	"time"
 
 	"github.com/sagernet/cors"
-	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/common/urltest"
-	C "github.com/sagernet/sing-box/constant"
-	"github.com/sagernet/sing-box/experimental"
-	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
-	"github.com/sagernet/sing-box/log"
-	"github.com/sagernet/sing-box/option"
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	"github.com/sagernet/sing/common/json"
@@ -29,6 +22,14 @@ import (
 	"github.com/sagernet/sing/service/filemanager"
 	"github.com/sagernet/ws"
 	"github.com/sagernet/ws/wsutil"
+
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/urltest"
+	C "github.com/sagernet/sing-box/constant"
+	"github.com/sagernet/sing-box/experimental"
+	"github.com/sagernet/sing-box/experimental/clashapi/trafficontrol"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -128,6 +129,7 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
 		r.Mount("/profile", profileRouter())
 		r.Mount("/cache", cacheRouter(ctx))
 		r.Mount("/dns", dnsRouter(s.dnsRouter))
+		r.Mount("/outbound", outbound(s, logFactory))
 
 		s.setupMetaAPI(r)
 	})

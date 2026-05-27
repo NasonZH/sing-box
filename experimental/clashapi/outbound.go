@@ -65,7 +65,13 @@ func replaceOutbound(server *Server, logFactory log.ObservableFactory) func(w ht
 			}
 			options = trojanOpt
 		case constant.TypeVLESS:
-
+			vlessOpt := new(option.VLESSOutboundOptions)
+			if err := commonJSON.Unmarshal([]byte(newOutbound.Options), vlessOpt); err != nil {
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, ErrBadRequest)
+				return
+			}
+			options = vlessOpt
 		}
 
 		logger := logFactory.NewLogger(F.ToString("outbound/", newOutbound.Type, "[", newOutbound.Tag, "]"))
@@ -74,6 +80,8 @@ func replaceOutbound(server *Server, logFactory log.ObservableFactory) func(w ht
 			render.JSON(w, r, err)
 			return
 		}
+
+		server.dnsRouter.ClearCache()
 
 		server.logger.Info("updated outbound[", newOutbound.Tag, "] to type ", newOutbound.Type)
 		render.Status(r, http.StatusOK)

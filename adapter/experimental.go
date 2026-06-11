@@ -16,6 +16,7 @@ type ClashServer interface {
 	ConnectionTracker
 	Mode() string
 	ModeList() []string
+	SetMode(newMode string)
 	SetModeUpdateHook(hook *observable.Subscriber[struct{}])
 	HistoryStorage() URLTestHistoryStorage
 }

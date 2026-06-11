@@ -28,6 +28,7 @@ import (
 	"github.com/sagernet/sing/common"
 	E "github.com/sagernet/sing/common/exceptions"
 	F "github.com/sagernet/sing/common/format"
+	commonJSON "github.com/sagernet/sing/common/json"
 	"github.com/sagernet/sing/common/ntp"
 	"github.com/sagernet/sing/service"
 	"github.com/sagernet/sing/service/pause"
@@ -36,6 +37,7 @@ import (
 var _ adapter.SimpleLifecycle = (*Box)(nil)
 
 type Box struct {
+	ctx             context.Context
 	createdAt       time.Time
 	logFactory      log.Factory
 	logger          log.ContextLogger
@@ -383,6 +385,7 @@ func New(options Options) (*Box, error) {
 		internalServices = append(internalServices, adapter.NewLifecycleService(ntpService, "ntp service"))
 	}
 	return &Box{
+		ctx:             ctx,
 		network:         networkManager,
 		endpoint:        endpointManager,
 		inbound:         inboundManager,
@@ -558,4 +561,33 @@ func (s *Box) Endpoint() adapter.EndpointManager {
 
 func (s *Box) LogFactory() log.Factory {
 	return s.logFactory
+}
+
+// SetClashMode 切换 Clash 模式 (Global/Rule/...), 运行期无重启生效。
+// 未启用 clash_api 时 clashServer 为空, 此时静默忽略。
+func (s *Box) SetClashMode(mode string) {
+	clashServer := service.FromContext[adapter.ClashServer](s.ctx)
+	if clashServer != nil {
+		clashServer.SetMode(mode)
+	}
+}
+
+// ReplaceOutbound 用完整的 outbound JSON 替换同 tag 的现有出站, 运行期无重启切换协议。
+// outboundJSON 需包含 type 与 tag 字段, 按内核出站注册表解析为对应协议选项。
+func (s *Box) ReplaceOutbound(outboundJSON string) error {
+	out, err := commonJSON.UnmarshalExtendedContext[option.Outbound](s.ctx, []byte(outboundJSON))
+	if err != nil {
+		return err
+	}
+	if _, ok := s.outbound.Outbound(out.Tag); !ok {
+		return E.New("outbound not found: ", out.Tag)
+	}
+
+	logger := s.logFactory.NewLogger(F.ToString("outbound/", out.Type, "[", out.Tag, "]"))
+	if err = s.outbound.Create(s.ctx, s.router, logger, out.Tag, out.Type, out.Options); err != nil {
+		return err
+	}
+
+	s.dnsRouter.ClearCache()
+	return nil
 }

@@ -15,6 +15,7 @@ import (
 // 并覆写 Close: 先关闭内核再释放 context, 调用方无需关心二者顺序,
 // 重复调用也是安全的.
 type ProxyBox struct {
+	Ctx context.Context
 	*box.Box
 	cancel    context.CancelFunc
 	closeOnce sync.Once
@@ -47,7 +48,7 @@ func NewProxyBox(platformInterface PlatformInterface, configContent string) (*Pr
 		cancel()
 		return nil, err
 	}
-	return &ProxyBox{Box: instance, cancel: cancel}, nil
+	return &ProxyBox{Ctx: ctx, Box: instance, cancel: cancel}, nil
 }
 
 // Close 关闭内核并释放其 context, 关闭顺序由内部保证, 可安全重复调用.
